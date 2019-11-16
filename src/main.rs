@@ -1,5 +1,7 @@
 extern crate sdl2;
 
+mod map;
+
 use std::f32::INFINITY;
 
 use sdl2::event::Event;
@@ -7,15 +9,7 @@ use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
 use sdl2::rect::{Point, Rect};
 
-const MAP_WIDTH: usize = 8;
-const MAP_HEIGHT: usize = 8;
-const TILE_HEIGHT: i32 = 64;
-
-struct Map {
-    tiles: [[i32; MAP_WIDTH]; MAP_HEIGHT],
-    tile_width: u32,
-    tile_height: u32,
-}
+use map::{TILE_SIZE, WALL_HEIGHT, Map};
 
 
 #[derive(Debug)]
@@ -27,8 +21,8 @@ struct Camera {
 
 
 const SHADE_NEAR_DIST: f32 = 128.0;
-const SHADE_FAR_DIST: f32 = 512.0;
-const SHADE_MAX_FADE: f32 = 2.0;
+const SHADE_FAR_DIST: f32 = 768.0;
+const SHADE_MAX_FADE: f32 = 2.5;
 
 fn interp_color(c: u8, dist: f32) -> u8 {
     let mut reldist =
@@ -92,8 +86,8 @@ where
 
         //println!("draw() loop: screen_x={} ray_angle={} ({} degrees)", screen_x, ray_angle, ray_angle * 180.0 / 3.141);
 
-        let tile_x0 = camera.x as i32 / map.tile_width as i32;
-        let tile_y0 = camera.y as i32 / map.tile_height as i32;
+        let tile_x0 = camera.x as i32 / TILE_SIZE as i32;
+        let tile_y0 = camera.y as i32 / TILE_SIZE as i32;
 
         // traverse by x
 
@@ -103,14 +97,14 @@ where
             let mut x;
             let tile_x_offset;
 
-            let mut dx = map.tile_width as f32;
+            let mut dx = TILE_SIZE as f32;
 
             if ray_cos > 0.0 {
-                x = ((tile_x0 + 1) * map.tile_width as i32) as f32;
+                x = ((tile_x0 + 1) * TILE_SIZE as i32) as f32;
                 tile_x_offset = 1;
             } else {
                 dx = -dx;
-                x = (tile_x0 * map.tile_width as i32) as f32;
+                x = (tile_x0 * TILE_SIZE as i32) as f32;
                 tile_x_offset = -1;
             }
 
@@ -121,15 +115,16 @@ where
             let mut tile_x = tile_x0 + tile_x_offset;
 
             loop {
-                let tile_y = y as i32 / map.tile_height as i32;
-                if tile_x < 0 || tile_x >= MAP_WIDTH as i32 || tile_y < 0 || tile_y >= MAP_HEIGHT as i32 {
-                    //println!("no intersection");
-                    break;
-                }
+                let tile_y = y as i32 / TILE_SIZE as i32;
 
-                if map.tiles[tile_y as usize][tile_x as usize] == 1 {
-                    dist_x = ((x - camera.x) * (x - camera.x) + (y - camera.y) * (y - camera.y)).sqrt();
-                    //println!("intersection x: tile_x={} tile_y={} x={} y={} dist={}", tile_x, tile_y, x, y, dist_x);
+                if let Some(tile) = map.tile(tile_x, tile_y) {
+                    if tile > 0 {
+                        dist_x = ((x - camera.x) * (x - camera.x) + (y - camera.y) * (y - camera.y)).sqrt();
+                        //println!("intersection x: tile_x={} tile_y={} x={} y={} dist={}", tile_x, tile_y, x, y, dist_x);
+                        break;
+                    }
+                } else {
+                    // no intersection
                     break;
                 }
 
@@ -148,14 +143,14 @@ where
         let mut y;
         let tile_y_offset;
 
-        let mut dy = map.tile_height as f32;
+        let mut dy = TILE_SIZE as f32;
 
         if ray_sin > 0.0 {
-            y = ((tile_y0 + 1) * map.tile_height as i32) as f32;
+            y = ((tile_y0 + 1) * TILE_SIZE as i32) as f32;
             tile_y_offset = 1;
         } else {
             dy = -dy;
-            y = (tile_y0 * map.tile_height as i32) as f32;
+            y = (tile_y0 * TILE_SIZE as i32) as f32;
             tile_y_offset = -1;
         }
 
@@ -166,15 +161,16 @@ where
         let mut tile_y = tile_y0 + tile_y_offset;
 
         loop {
-            let tile_x = x as i32 / map.tile_width as i32;
-            if tile_x < 0 || tile_x >= MAP_WIDTH as i32 || tile_y < 0 || tile_y >= MAP_HEIGHT as i32 {
-                // println!("no intersection");
-                break;
-            }
+            let tile_x = x as i32 / TILE_SIZE as i32;
 
-            if map.tiles[tile_y as usize][tile_x as usize] == 1 {
-                dist_y = ((x - camera.x) * (x - camera.x) + (y - camera.y) * (y - camera.y)).sqrt();
-                // println!("intersection y: tile_x={} tile_y={} x={} y={} dist={}", tile_x, tile_y, x, y, dist_y);
+            if let Some(tile) = map.tile(tile_x, tile_y) {
+                if tile > 0 {
+                    dist_y = ((x - camera.x) * (x - camera.x) + (y - camera.y) * (y - camera.y)).sqrt();
+                    // println!("intersection y: tile_x={} tile_y={} x={} y={} dist={}", tile_x, tile_y, x, y, dist_y);
+                    break;
+                }
+            } else {
+                // out of map borders
                 break;
             }
 
@@ -197,7 +193,7 @@ where
 
         // line_height / TILE_HEIGHT = ray_screen_dist / dist
 
-        let line_height = TILE_HEIGHT as f32 * screen_dist / dist  / (ray_angle - camera.angle).cos();
+        let line_height = WALL_HEIGHT as f32 * screen_dist / dist  / (ray_angle - camera.angle).cos();
         let middle = area.height() as i32 / 2;
 
         let color =
@@ -238,26 +234,26 @@ fn main() -> Result<(), String> {
 
     println!("Using SDL renderer: {:?}", canvas.info());
 
-    let tiles = [
-        [1, 1, 1, 1, 1, 1, 1, 1],
-        [1, 0, 0, 0, 0, 0, 0, 1],
-        [1, 0, 0, 0, 0, 2, 0, 1],
-        [1, 0, 0, 0, 0, 0, 0, 1],
-        [1, 0, 0, 0, 0, 0, 0, 1],
-        [1, 0, 3, 0, 0, 0, 0, 1],
-        [1, 0, 0, 0, 0, 0, 0, 1],
-        [1, 1, 1, 1, 1, 1, 1, 1],
-    ];
+    let map = Map::new_square(64, 64);
 
-    let map = Map {
-        tiles,
-        tile_width: 64,
-        tile_height: 64,
-    };
+    // Find first empty tile
+    let mut camera_tile_x = 0;
+    let mut camera_tile_y = 0;
+
+    'find_empty:
+    for y in 0..map.height() {
+        for x in 0..map.width() {
+            if map.tile(x as i32, y as i32).unwrap() == 0 {
+                camera_tile_x = x;
+                camera_tile_y = y;
+                break 'find_empty;
+            }
+        }
+    }
 
     let mut camera = Camera {
-        x: (2 * map.tile_width + 5) as f32,
-        y: (2 * map.tile_height + 5) as f32,
+        x: (camera_tile_x * TILE_SIZE + TILE_SIZE / 2) as f32,
+        y: (camera_tile_y * TILE_SIZE + TILE_SIZE / 2) as f32,
         angle: 0.0,
     };
 
