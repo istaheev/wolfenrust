@@ -5,7 +5,7 @@ use std::f32::INFINITY;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
-use sdl2::rect::Point;
+use sdl2::rect::{Point, Rect};
 
 const MAP_WIDTH: usize = 8;
 const MAP_HEIGHT: usize = 8;
@@ -26,20 +26,62 @@ struct Camera {
 }
 
 
-fn draw<R>(canvas: &mut sdl2::render::Canvas<R>, map: &Map, camera: &Camera)
+const SHADE_NEAR_DIST: f32 = 128.0;
+const SHADE_FAR_DIST: f32 = 512.0;
+const SHADE_MAX_FADE: f32 = 2.0;
+
+fn interp_color(c: u8, dist: f32) -> u8 {
+    let mut reldist =
+        (dist - SHADE_NEAR_DIST) / (SHADE_FAR_DIST - SHADE_NEAR_DIST);
+    if reldist < 0.0 {
+        reldist = 0.0;
+    }
+    if reldist > 1.0 {
+        reldist = 1.0;
+    }
+    // 0 -> 1
+    // 1 -> MAX_FADE
+
+    let shade = reldist * (SHADE_MAX_FADE - 1.0) + 1.0;
+    return (c as f32 / shade) as u8;
+}
+
+
+fn shade(color: Color, dist: f32) -> Color {
+    Color::RGB(
+        interp_color(color.r, dist),
+        interp_color(color.g, dist),
+        interp_color(color.b, dist)
+    )
+}
+
+
+fn draw_floor<R>(canvas: &mut sdl2::render::Canvas<R>)
+where
+    R: sdl2::render::RenderTarget
+{
+    let area = canvas.viewport();
+
+    canvas.set_draw_color(Color::RGB(127, 127, 127));
+    canvas.fill_rect(Rect::new(
+        0, area.height() as i32 / 2,
+        area.width(), area.height(),
+    )).unwrap();
+}
+
+
+fn draw_walls<R>(canvas: &mut sdl2::render::Canvas<R>, map: &Map, camera: &Camera)
 where
     R: sdl2::render::RenderTarget
 {
     let area = canvas.viewport();
     let screen_width = area.width();
-    let fov: f32 = 3.141592 / 2.0;
+    let fov: f32 = 3.141592 / 3.0; // 60 degrees
 
     // calculate distance to screen
     let screen_dist = screen_width as f32 / 2.0 / (fov/2.0).tan();
 
     //println!("enter draw(): camera={:?} screen_dist={}", camera, screen_dist);
-
-    canvas.set_draw_color(Color::RGB(255, 255, 255));
 
     for screen_x in 0..area.width() as i32 {
         let ray_x = (screen_x - screen_width as i32 / 2) as f32;
@@ -142,8 +184,10 @@ where
         }
 
         let mut dist = dist_x;
+        let mut side = 0;
         if true && dist_y < dist {
             dist = dist_y;
+            side = 1;
         }
 
         if dist == INFINITY {
@@ -156,6 +200,15 @@ where
         let line_height = TILE_HEIGHT as f32 * screen_dist / dist  / (ray_angle - camera.angle).cos();
         let middle = area.height() as i32 / 2;
 
+        let color =
+            match side {
+                0 => Color::RGB(0, 0, 255),
+                1 => Color::RGB(0, 0, 180),
+                _ => unreachable!(),
+            };
+        let shaded_color = shade(color, dist);
+
+        canvas.set_draw_color(shaded_color);
         canvas.draw_line(
             Point::new(screen_x as i32, middle - (line_height / 2.0) as i32),
             Point::new(screen_x as i32, middle + (line_height / 2.0) as i32),
@@ -170,16 +223,16 @@ fn main() -> Result<(), String> {
     let window = video_subsystem
         .window(
             "Wolfenrust 3D",
-            800,
-            600
+            1024,
+            768
         )
         .position_centered()
         .build()
         .map_err(|e| e.to_string())?;
 
     let mut canvas = window.into_canvas()
-        .target_texture()
-        .present_vsync()
+        //.target_texture()
+        //.present_vsync()
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -188,10 +241,10 @@ fn main() -> Result<(), String> {
     let tiles = [
         [1, 1, 1, 1, 1, 1, 1, 1],
         [1, 0, 0, 0, 0, 0, 0, 1],
+        [1, 0, 0, 0, 0, 2, 0, 1],
         [1, 0, 0, 0, 0, 0, 0, 1],
         [1, 0, 0, 0, 0, 0, 0, 1],
-        [1, 0, 0, 0, 0, 0, 0, 1],
-        [1, 0, 0, 0, 0, 0, 0, 1],
+        [1, 0, 3, 0, 0, 0, 0, 1],
         [1, 0, 0, 0, 0, 0, 0, 1],
         [1, 1, 1, 1, 1, 1, 1, 1],
     ];
@@ -220,12 +273,12 @@ fn main() -> Result<(), String> {
                     break 'mainloop
                 },
                 Event::KeyDown { keycode: Some(Keycode::W), .. } => {
-                    const SPEED: f32 = 1.0;
+                    const SPEED: f32 = 1.5;
                     camera.x += SPEED * camera.angle.cos();
                     camera.y += SPEED * camera.angle.sin();
                 },
                 Event::KeyDown { keycode: Some(Keycode::S), .. } => {
-                    const SPEED: f32 = 1.0;
+                    const SPEED: f32 = 1.5;
                     camera.x -= SPEED * camera.angle.cos();
                     camera.y -= SPEED * camera.angle.sin();
                 },
@@ -244,7 +297,8 @@ fn main() -> Result<(), String> {
         canvas.set_draw_color(Color::RGB(0, 0, 0));
         canvas.clear();
 
-        draw(&mut canvas, &map, &camera);
+        draw_floor(&mut canvas);
+        draw_walls(&mut canvas, &map, &camera);
 
         canvas.present();
 
