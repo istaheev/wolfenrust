@@ -68,10 +68,24 @@ impl Map {
     }
 }
 
-pub mod bsp_gen {
+pub mod rand_gen {
+    use rand::{self, Rng};
+
     use crate::map::Map;
 
-    pub fn gen_map_bsp() -> Map {
-        Map::new(64, 64)
+    pub fn gen_map() -> Map {
+        let mut map = Map::new_square(64, 64);
+
+        let mut rng = rand::thread_rng();
+        for _ in 0..63*63/10 {
+            let x = (rng.gen::<u32>() % 62 + 1) as i32;
+            let y = (rng.gen::<u32>() % 62 + 1) as i32;
+            if let Some(tile) = map.tile(x, y) {
+                if tile > 0 { continue }
+            }
+            map.set_tile(x, y, 1);
+        }
+
+        map
     }
 }

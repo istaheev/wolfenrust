@@ -1,4 +1,5 @@
 extern crate sdl2;
+extern crate rand;
 
 mod map;
 
@@ -12,11 +13,19 @@ use sdl2::rect::{Point, Rect};
 use map::{TILE_SIZE, WALL_HEIGHT, Map};
 
 
+const MAX_MOVE_SPEED: f32 = 96.0;
+const MAX_ROTATE_SPEED: f32 = 1.0;
+
+
 #[derive(Debug)]
 struct Camera {
     x: f32,
     y: f32,
     angle: f32,
+
+    // movement
+    move_speed: f32,
+    rotate_speed: f32,
 }
 
 
@@ -234,7 +243,8 @@ fn main() -> Result<(), String> {
 
     println!("Using SDL renderer: {:?}", canvas.info());
 
-    let map = Map::new_square(64, 64);
+    // let map = Map::new_square(64, 64);
+    let map = map::rand_gen::gen_map();
 
     // Find first empty tile
     let mut camera_tile_x = 0;
@@ -255,12 +265,17 @@ fn main() -> Result<(), String> {
         x: (camera_tile_x * TILE_SIZE + TILE_SIZE / 2) as f32,
         y: (camera_tile_y * TILE_SIZE + TILE_SIZE / 2) as f32,
         angle: 0.0,
+        move_speed: 0.0,
+        rotate_speed: 0.0,
     };
 
-    let mut frames = 0;
-    let mut start_time = std::time::Instant::now();
-
     let mut event_pump = sdl_context.event_pump()?;
+
+    let mut frames = 0;
+    let mut frames_start_time = std::time::Instant::now();
+
+    let mut loop_start_time = std::time::Instant::now();
+
     'mainloop: loop {
         for ev in event_pump.poll_iter() {
             match ev {
@@ -269,25 +284,42 @@ fn main() -> Result<(), String> {
                     break 'mainloop
                 },
                 Event::KeyDown { keycode: Some(Keycode::W), .. } => {
-                    const SPEED: f32 = 1.5;
-                    camera.x += SPEED * camera.angle.cos();
-                    camera.y += SPEED * camera.angle.sin();
+                    camera.move_speed = MAX_MOVE_SPEED;
+                },
+                Event::KeyUp { keycode: Some(Keycode::W), .. } => {
+                    camera.move_speed = 0.0;
                 },
                 Event::KeyDown { keycode: Some(Keycode::S), .. } => {
-                    const SPEED: f32 = 1.5;
-                    camera.x -= SPEED * camera.angle.cos();
-                    camera.y -= SPEED * camera.angle.sin();
+                    camera.move_speed = -MAX_MOVE_SPEED;
+                },
+                Event::KeyUp { keycode: Some(Keycode::S), .. } => {
+                    camera.move_speed = 0.0;
                 },
                 Event::KeyDown { keycode: Some(Keycode::A), .. } => {
-                    const SPEED: f32 = 0.05;
-                    camera.angle += SPEED;
+                    camera.rotate_speed = MAX_ROTATE_SPEED;
+                },
+                Event::KeyUp { keycode: Some(Keycode::A), .. } => {
+                    camera.rotate_speed = 0.0;
                 },
                 Event::KeyDown { keycode: Some(Keycode::D), .. } => {
-                    const SPEED: f32 = 0.05;
-                    camera.angle -= SPEED;
+                    camera.rotate_speed = -MAX_ROTATE_SPEED;
+                },
+                Event::KeyUp { keycode: Some(Keycode::D), .. } => {
+                    camera.rotate_speed = 0.0;
                 },
                 _ => {},
             }
+        }
+
+        let elapsed_secs = loop_start_time.elapsed().as_micros() as f32 / 1_000_000.0;
+        loop_start_time = std::time::Instant::now();
+
+        if camera.move_speed != 0.0 {
+            camera.x += elapsed_secs * camera.move_speed * camera.angle.cos();
+            camera.y += elapsed_secs * camera.move_speed * camera.angle.sin();
+        }
+        if camera.rotate_speed != 0.0 {
+            camera.angle += elapsed_secs * camera.rotate_speed;
         }
 
         canvas.set_draw_color(Color::RGB(0, 0, 0));
@@ -300,11 +332,11 @@ fn main() -> Result<(), String> {
 
         frames += 1;
 
-        let elapsed = start_time.elapsed();
+        let elapsed = frames_start_time.elapsed();
         if elapsed.as_secs() > 2 {
             println!("FPS: {:.1}", frames as f32/ elapsed.as_secs() as f32);
             frames = 0;
-            start_time = std::time::Instant::now();
+            frames_start_time = std::time::Instant::now();
         }
     }
 
