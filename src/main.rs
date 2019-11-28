@@ -59,6 +59,24 @@ fn shade(color: Color, dist: f32) -> Color {
 }
 
 
+fn draw_crosshair<R>(canvas: &mut sdl2::render::Canvas<R>)
+where
+    R: sdl2::render::RenderTarget
+{
+    let area = canvas.viewport();
+    canvas.set_draw_color(Color::RGB(255, 255, 255));
+    let center = Point::new(area.width() as i32 / 2, area.height() as i32 / 2);
+    canvas.draw_line(
+        Point::new(center.x - 25, center.y),
+        Point::new(center.x + 25, center.y),
+    ).unwrap();
+    canvas.draw_line(
+        Point::new(center.x, center.y - 25),
+        Point::new(center.x, center.y + 25),
+    ).unwrap();
+}
+
+
 fn draw_floor<R>(canvas: &mut sdl2::render::Canvas<R>)
 where
     R: sdl2::render::RenderTarget
@@ -237,7 +255,7 @@ fn main() -> Result<(), String> {
 
     let mut canvas = window.into_canvas()
         //.target_texture()
-        //.present_vsync()
+        .present_vsync()
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -327,6 +345,7 @@ fn main() -> Result<(), String> {
 
         draw_floor(&mut canvas);
         draw_walls(&mut canvas, &map, &camera);
+        draw_crosshair(&mut canvas);
 
         canvas.present();
 
